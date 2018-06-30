@@ -12,7 +12,7 @@ import (
 // 1. The name of the file to be read.
 // 2. The channel where all of the lines will be sent.
 // 3. The channel where send when it's finished.
-func Tail(name string, channel chan string, done chan bool) error {
+func Tail(name string, channel chan<- string, done chan<- bool, quit <-chan bool) error {
     file, err := os.Open(name)
     if err != nil {
         done <- true
@@ -24,7 +24,12 @@ func Tail(name string, channel chan string, done chan bool) error {
         line, err := r.ReadString('\n')
         if err != nil {
             if err == io.EOF {
-                time.Sleep(time.Second)
+                select {
+                case <-quit:
+                    done <- true
+                    return nil
+                case <-time.After(time.Second):
+                }
             } else {
                 done <- true
                 return err
