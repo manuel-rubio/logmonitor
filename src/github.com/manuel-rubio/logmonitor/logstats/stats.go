@@ -3,6 +3,7 @@ package logstats
 import (
     "fmt"
     "time"
+    "strconv"
 
     "github.com/manuel-rubio/logmonitor/logyzer"
 )
@@ -26,14 +27,14 @@ func ProcessStats(entry logyzer.LogEntry, stats Stats) (Stats) {
     }
     switch entry.Method() {
     case "GET":
-        stats.get ++
+        stats.get += 1
     case "POST":
-        stats.post ++
+        stats.post += 1
     default:
-        stats.badLines ++
+        stats.badLines += 1
         return stats
     }
-    stats.hits ++
+    stats.hits += 1
     stats.forwardedHits += entry.NumProxyIPs()
     for _, proxy := range entry.ProxyIPs() {
         if _, ok := stats.proxyUsage[proxy]; ok {
@@ -82,7 +83,35 @@ func Timer(tick chan<- bool, doneTimer <-chan bool) {
     }
 }
 
+func MostUsedProxy(proxies ProxyHits) (string, int) {
+    if len(proxies) == 0 {
+        return "", 0
+    }
+    var proxy string
+    proxyHits := 0
+    for p, hits := range proxies {
+        if hits > proxyHits {
+            proxyHits = hits
+            proxy = p
+        }
+    }
+    return proxy, proxyHits
+}
+
+func FormatStats(stats Stats) (string) {
+    timestamp := strconv.Itoa(int(time.Now().Unix()))
+    proxy, hits := MostUsedProxy(stats.proxyUsage)
+    return `{"timestamp": ` + timestamp + `, "message_type": "stats",` +
+           ` "get": ` + strconv.Itoa(stats.get) + `,` +
+           ` "post": ` + strconv.Itoa(stats.post) + `,` +
+           ` "hits": ` + strconv.Itoa(stats.hits) + `,` +
+           ` "forwarded_hits": ` + strconv.Itoa(stats.forwardedHits) + `,` +
+           ` "most_used_proxy": "` + proxy + `",` +
+           ` "most_used_proxy_hits": ` + strconv.Itoa(hits) + `,` +
+           ` "p95": ` + strconv.FormatFloat(stats.p95, 'f', 9, 64) + `,` +
+           ` "bad_lines": ` + strconv.Itoa(stats.badLines) + `}`
+}
+
 func PrintStats(stats Stats) {
-    // TODO generate output
-    fmt.Println(stats)
+    fmt.Println(FormatStats(stats))
 }
