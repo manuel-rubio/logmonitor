@@ -4,6 +4,7 @@ import (
     "regexp"
     "strconv"
     "strings"
+    "time"
 )
 
 type LogEntry struct {
@@ -14,7 +15,7 @@ type LogEntry struct {
     uri string
     httpver string
     statuscode int
-    responsetime int
+    responsetime time.Duration
     badLine bool
 }
 
@@ -34,6 +35,10 @@ func (logentry *LogEntry) IsBadLine() (bool) {
     return logentry.badLine
 }
 
+func (logentry *LogEntry) ResponseTime() (time.Duration) {
+    return logentry.responsetime
+}
+
 func Parse(line string) LogEntry  {
     reClientIP := `([0-9]+(?:\.[0-9]+){3})`
     reProxyIPs := `((?:, [0-9]+(?:\.[0-9]+){3})*)`
@@ -49,7 +54,7 @@ func Parse(line string) LogEntry  {
         return LogEntry{badLine: true}
     }
     statuscode, _ := strconv.Atoi(match[7])
-    responsetime, _ := strconv.ParseFloat(match[8], 64)
+    responsetime, _ := time.ParseDuration(match[8] + "s")
     logEntry := LogEntry{clientIP: match[1],
                          proxyIPs: ParseProxyIPs(match[2]),
                          datetime: match[3],
@@ -57,7 +62,7 @@ func Parse(line string) LogEntry  {
                          uri: match[5],
                          httpver: match[6],
                          statuscode: statuscode,
-                         responsetime: int(responsetime * 1000),
+                         responsetime: responsetime,
                          badLine: false}
     return logEntry
 }

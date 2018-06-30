@@ -3,12 +3,43 @@ package logstats
 import (
     "fmt"
     "time"
-    "strconv"
+    "encoding/json"
+    "math"
+    "sort"
 
     "github.com/manuel-rubio/logmonitor/logyzer"
 )
 
+const respTimeSampleSize int = 1000
+
 type ProxyHits map[string]int
+
+type timeSlice []time.Duration
+
+type ResposeTimes struct {
+    times timeSlice
+    count int
+}
+
+func (r *ResposeTimes) AddTime(t time.Duration) {
+    r.count ++
+    r.times[(r.count - 1) % respTimeSampleSize] = t
+}
+
+// Sort Interface: Len
+func (ts timeSlice) Len() (int) {
+    return len(ts)
+}
+
+// Sort Interface: Less
+func (ts timeSlice) Less(i, j int) (bool) {
+    return int64(ts[i]) < int64(ts[j])
+}
+
+// Sort Interface: Swap
+func (ts timeSlice) Swap(i, j int) {
+    ts[i], ts[j] = ts[j], ts[i]
+}
 
 type Stats struct {
     get int
@@ -16,7 +47,7 @@ type Stats struct {
     hits int
     forwardedHits int
     proxyUsage ProxyHits
-    p95 float64
+    responseTimes ResposeTimes
     badLines int
 }
 
@@ -27,14 +58,14 @@ func ProcessStats(entry logyzer.LogEntry, stats Stats) (Stats) {
     }
     switch entry.Method() {
     case "GET":
-        stats.get += 1
+        stats.get ++
     case "POST":
-        stats.post += 1
+        stats.post ++
     default:
-        stats.badLines += 1
+        stats.badLines ++
         return stats
     }
-    stats.hits += 1
+    stats.hits ++
     stats.forwardedHits += entry.NumProxyIPs()
     for _, proxy := range entry.ProxyIPs() {
         if _, ok := stats.proxyUsage[proxy]; ok {
@@ -43,20 +74,25 @@ func ProcessStats(entry logyzer.LogEntry, stats Stats) (Stats) {
             stats.proxyUsage[proxy] = 1
         }
     }
-    // TODO calculate p95
+    stats.responseTimes.AddTime(entry.ResponseTime())
     return stats
 }
 
 func StatsLoop(statsChan <-chan logyzer.LogEntry, doneStats <-chan bool) {
     doneTimer := make(chan bool)
     tickTimer := make(chan bool)
-    stats := Stats{get: 0,
-                   post: 0,
-                   hits: 0,
-                   forwardedHits: 0,
-                   proxyUsage: make(ProxyHits),
-                   p95: 0.0,
-                   badLines: 0}
+    stats := Stats{
+        get: 0,
+        post: 0,
+        hits: 0,
+        forwardedHits: 0,
+        proxyUsage: make(ProxyHits),
+        responseTimes: ResposeTimes{
+            times: make(timeSlice, respTimeSampleSize),
+            count: 0,
+        },
+        badLines: 0,
+    }
     go Timer(tickTimer, doneTimer)
     for {
         select {
@@ -98,18 +134,46 @@ func MostUsedProxy(proxies ProxyHits) (string, int) {
     return proxy, proxyHits
 }
 
+func P95(responseTimes ResposeTimes) (float64) {
+    if responseTimes.count == 0 {
+        return 0.0
+    }
+    count := float64(responseTimes.count)
+    samples := int(math.Min(count, float64(respTimeSampleSize)))
+    times := make(timeSlice, samples)
+    copy(times, responseTimes.times[:samples])
+    sort.Sort(times)
+    return float64(times[int(count * 0.95 + 0.5) - 1]) / float64(time.Second)
+}
+
 func FormatStats(stats Stats) (string) {
-    timestamp := strconv.Itoa(int(time.Now().Unix()))
+    timestamp := int(time.Now().Unix())
     proxy, hits := MostUsedProxy(stats.proxyUsage)
-    return `{"timestamp": ` + timestamp + `, "message_type": "stats",` +
-           ` "get": ` + strconv.Itoa(stats.get) + `,` +
-           ` "post": ` + strconv.Itoa(stats.post) + `,` +
-           ` "hits": ` + strconv.Itoa(stats.hits) + `,` +
-           ` "forwarded_hits": ` + strconv.Itoa(stats.forwardedHits) + `,` +
-           ` "most_used_proxy": "` + proxy + `",` +
-           ` "most_used_proxy_hits": ` + strconv.Itoa(hits) + `,` +
-           ` "p95": ` + strconv.FormatFloat(stats.p95, 'f', 9, 64) + `,` +
-           ` "bad_lines": ` + strconv.Itoa(stats.badLines) + `}`
+    p95 := P95(stats.responseTimes)
+    j, _ := json.Marshal(&struct{
+        Timestamp         int     `json:"timestamp"`
+        MessageType       string  `json:"message_type"`
+        Get               int     `json:"get"`
+        Post              int     `json:"post"`
+        Hits              int     `json:"hits"`
+        ForwardedHits     int     `json:"forwarded_hits"`
+        MostUsedProxy     string  `json:"most_used_proxy"`
+        MostUsedProxyHits int     `json:"most_used_proxy_hits"`
+        P95               float64 `json:"p95"`
+        BadLines          int     `json:"bad_lines"`
+    }{
+        Timestamp: timestamp,
+        MessageType: "stats",
+        Get: stats.get,
+        Post: stats.post,
+        Hits: stats.hits,
+        ForwardedHits: stats.forwardedHits,
+        MostUsedProxy: proxy,
+        MostUsedProxyHits: hits,
+        P95: p95,
+        BadLines: stats.badLines,
+    })
+    return string(j)
 }
 
 func PrintStats(stats Stats) {
