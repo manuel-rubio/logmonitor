@@ -78,3 +78,12 @@ GOPATH=$(pwd) go install github.com/manuel-rubio/logmonitor
 ```
 
 You'll get the binary `bin/logmonitor` ready to go.
+
+Infrastructure
+--------------
+
+The system is running using several goroutines. These goroutines are in carge of:
+
+  * `tail`: keeps reading the file, line by line. Sending each line back to the main goroutine.
+  * `stats`: accepts log entry lines. It generates a new goroutine to handle the timer and ensure the output is generated exactly every 10 seconds.
+  * `handle break`: to handle the Ctrl+C press and exits.
