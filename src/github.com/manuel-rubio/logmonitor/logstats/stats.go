@@ -8,9 +8,11 @@ import (
     "sort"
 
     "github.com/manuel-rubio/logmonitor/logyzer"
+    "github.com/manuel-rubio/logmonitor/logtimer"
 )
 
 const respTimeSampleSize int = 1000
+const secsToPrint int = 10
 
 type ProxyHits map[string]int
 
@@ -78,9 +80,8 @@ func ProcessStats(entry logyzer.LogEntry, stats Stats) (Stats) {
     return stats
 }
 
-func StatsLoop(statsChan <-chan logyzer.LogEntry, doneStats <-chan bool) {
-    doneTimer := make(chan bool)
-    tickTimer := make(chan bool)
+func StatsLoop(logs <-chan logyzer.LogEntry, done <-chan bool) {
+    timer := logtimer.New(secsToPrint)
     stats := Stats{
         get: 0,
         post: 0,
@@ -93,27 +94,15 @@ func StatsLoop(statsChan <-chan logyzer.LogEntry, doneStats <-chan bool) {
         },
         badLines: 0,
     }
-    go Timer(tickTimer, doneTimer)
     for {
         select {
-        case entry := <-statsChan:
+        case entry := <-logs:
             stats = ProcessStats(entry, stats)
-        case <-tickTimer:
+        case <-timer.Tick():
             PrintStats(stats)
-        case <-doneStats:
-            doneTimer <- true
+        case <-done:
+            timer.Stop()
             PrintStats(stats)
-            return
-        }
-    }
-}
-
-func Timer(tick chan<- bool, doneTimer <-chan bool) {
-    for {
-        select {
-        case <-time.After(10 * time.Second):
-            tick <- true
-        case <-doneTimer:
             return
         }
     }
