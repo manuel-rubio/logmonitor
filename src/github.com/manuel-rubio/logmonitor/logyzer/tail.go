@@ -18,6 +18,7 @@ func Tail(name string, channel chan<- string, done chan<- bool, quit <-chan bool
         done <- true
         return fmt.Errorf("Unable to open file %s: %s", name, err)
     }
+    file.Seek(0, 2) // go to the EOF to read only new lines
     defer file.Close()
     r := bufio.NewReader(file)
     for {
