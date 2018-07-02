@@ -74,6 +74,13 @@ func Check(traffic TrafficAlert) (TrafficAlert) {
     return traffic
 }
 
+func alertType(crossed bool) (string) {
+    if crossed {
+        return "traffic_above_threshold"
+    }
+    return "traffic_below_threshold"
+}
+
 func FormatAlert(traffic TrafficAlert) (string) {
     timestamp := int(time.Now().Unix())
     j, _ := json.Marshal(&struct{
@@ -86,7 +93,7 @@ func FormatAlert(traffic TrafficAlert) (string) {
     }{
         Timestamp: timestamp,
         MessageType: "alert",
-        AlertType: "traffic_above_threshold",
+        AlertType: alertType(traffic.thresholdCrossed),
         Period: 60, // 60 seconds
         Threshold: traffic.threshold,
         CurrentValue: traffic.hitsTotal,
