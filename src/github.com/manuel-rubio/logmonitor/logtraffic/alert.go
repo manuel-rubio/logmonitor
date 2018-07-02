@@ -9,7 +9,7 @@ import(
     "github.com/manuel-rubio/logmonitor/logtimer"
 )
 
-type TrafficAlert struct {
+type trafficAlert struct {
     threshold int
     thresholdCrossed bool
     hitsPerSecond []int
@@ -19,7 +19,7 @@ type TrafficAlert struct {
 
 func TrafficLoop(logs <-chan logyzer.LogEntry, done <-chan bool, threshold int) {
     timer := logtimer.New(1)
-    traffic := TrafficAlert{
+    traffic := trafficAlert{
         threshold: threshold,
         thresholdCrossed: false,
         hitsPerSecond: make([]int, 60),
@@ -37,7 +37,7 @@ func TrafficLoop(logs <-chan logyzer.LogEntry, done <-chan bool, threshold int) 
     }
 }
 
-func ProcessLog(entry logyzer.LogEntry, traffic TrafficAlert) (TrafficAlert) {
+func ProcessLog(entry logyzer.LogEntry, traffic trafficAlert) (trafficAlert) {
     // TODO: QUESTION: should I count the bad lines for traffic alert?
     if entry.IsBadLine() {
         return traffic
@@ -47,7 +47,7 @@ func ProcessLog(entry logyzer.LogEntry, traffic TrafficAlert) (TrafficAlert) {
     return Check(traffic)
 }
 
-func CheckTime(traffic TrafficAlert) (TrafficAlert) {
+func CheckTime(traffic trafficAlert) (trafficAlert) {
     second := time.Now().Second()
     if traffic.currentSecond != second {
         traffic.currentSecond = second
@@ -59,7 +59,7 @@ func CheckTime(traffic TrafficAlert) (TrafficAlert) {
     return traffic
 }
 
-func Check(traffic TrafficAlert) (TrafficAlert) {
+func Check(traffic trafficAlert) (trafficAlert) {
     traffic.hitsTotal = 0
     for _, value := range traffic.hitsPerSecond {
         traffic.hitsTotal += value
@@ -81,7 +81,7 @@ func alertType(crossed bool) (string) {
     return "traffic_below_threshold"
 }
 
-func FormatAlert(traffic TrafficAlert) (string) {
+func FormatAlert(traffic trafficAlert) (string) {
     timestamp := int(time.Now().Unix())
     j, _ := json.Marshal(&struct{
         Timestamp         int     `json:"timestamp"`
@@ -101,6 +101,6 @@ func FormatAlert(traffic TrafficAlert) (string) {
     return string(j)
 }
 
-func PrintAlert(traffic TrafficAlert) {
+func PrintAlert(traffic trafficAlert) {
     fmt.Println(FormatAlert(traffic))
 }
