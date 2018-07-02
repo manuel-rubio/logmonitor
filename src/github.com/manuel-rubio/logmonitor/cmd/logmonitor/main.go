@@ -10,6 +10,7 @@ import (
     "github.com/manuel-rubio/logmonitor/logyzer"
     "github.com/manuel-rubio/logmonitor/logstats"
     "github.com/manuel-rubio/logmonitor/logtraffic"
+    "github.com/manuel-rubio/logmonitor/logproxy"
 )
 
 func usage() {
@@ -50,12 +51,20 @@ func main() {
         logtraffic.TrafficLoop(trafficAlert, doneTraffic, threshold)
     })
 
-    // Process to handle Ctrl+C
+    // Process and channels to handle Proxy Alert
+    proxyAlert := make(chan logyzer.LogEntry)
+    doneProxy := make(chan bool)
     run(&wg, func() {
-        HandleBreak([]chan<- bool{doneStats, doneTraffic, quitTail})
+        logproxy.ProxyLoop(proxyAlert, doneProxy)
     })
 
-    MainLoop(lines, []chan<- logyzer.LogEntry{stats, trafficAlert}, doneTail)
+    // Process to handle Ctrl+C
+    run(&wg, func() {
+        HandleBreak([]chan<- bool{doneStats, doneTraffic, doneProxy, quitTail})
+    })
+
+    alerts := []chan<- logyzer.LogEntry{stats, trafficAlert, proxyAlert}
+    MainLoop(lines, alerts, doneTail)
     wg.Wait()
 }
 
