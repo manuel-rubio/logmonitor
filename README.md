@@ -95,3 +95,13 @@ The system is running using several goroutines. These goroutines are in carge of
   * `tail`: keeps reading the file, line by line. Sending each line back to the main goroutine.
   * `stats`: accepts log entry lines. It generates a new goroutine to handle the timer and ensure the output is generated exactly every 10 seconds.
   * `handle break`: to handle the Ctrl+C press and exits.
+  * `proxy`: accepts log entry lines. It analyzes the proxy chain to ensure it's efficient, otherwise an alert is triggered.
+  * `traffic`: accepts log entry lines. It analyze the amount of lines per minute and if the number exceeds the threshold an alert is triggered. In addition when the number of log lines are again under the threshold a new alert is triggered to report the situation was solved.
+
+The amount of memory in use for `traffic` is always the same. Only one array of 60 integers where the amount of log lines are noted.
+
+For `proxy` the amount of memory is variable and depends on the number of different proxies there are. The main map is generated using the _Proxy_ struct and inside the _parents_ and _children_ are arrays of pointers. For a normal node with 2 parents and 2 children the amount of memory in use should be 64 bytes. For 1000 proxies in memory the average amount should be 64kB. Depending on the number of links between them, of course.
+
+For `stats` we use an array with a 100 elements sample. The amount of memory in this case is always the same. The most of the other statistics use the same data space except the proxy hits. The map in use for proxy hits store the name of the proxy with an integer for the counter of hits and decide which is the most used proxy. We use a max of 20 bytes per proxy stored (around 20kB for 1000 different proxies).
+
+After running during hours with `genlogs` populating the log file with hundreds of lines the memory usage was stable at 6MB (with compressed memory at 180kB aprox. in a Mac computer).
