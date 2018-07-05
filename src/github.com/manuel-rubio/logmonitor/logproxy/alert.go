@@ -45,9 +45,12 @@ func (ps *proxies) processProxyChain(chain proxyChain) {
     }
 }
 
+// adjust the distance for the parent nodes in the graph.
 func (ps *proxies) adjustDistanceUp(name string, proxy *Proxy,
                                     childName string, child *Proxy) {
-    if (*proxy).distance() > (*child).distance() {
+    proxy_distance := (*proxy).distance()
+    child_distance := (*child).distance()
+    if proxy_distance > child_distance {
         proxy.children = make(proxiesPtr)
         proxy.children[childName] = child
         (*ps)[name] = *proxy
@@ -57,9 +60,16 @@ func (ps *proxies) adjustDistanceUp(name string, proxy *Proxy,
     }
 }
 
+// add a leaf node to the graph (a leaf node is a node without children)
+// if it's not yet in there.
 func (ps *proxies) add(name string) (Proxy) {
     if proxy, ok := (*ps)[name]; ok {
         if proxy.distance() > 0 {
+            for _, ch := range proxy.children {
+                delete(ch.parents, proxy.name)
+            }
+            proxy.children = make(proxiesPtr)
+            (*ps)[name] = proxy
             for parentName, parent := range proxy.parents {
                 ps.adjustDistanceUp(parentName, parent, name, &proxy)
             }
@@ -72,6 +82,8 @@ func (ps *proxies) add(name string) (Proxy) {
     return (*ps)[name]
 }
 
+// add a parent and a child node to the graph if it's still not there
+// or it has a better distance (minor) than before.
 func (ps *proxies) addChild(parentName string, childName string) {
     if proxy, ok := (*ps)[parentName]; ok {
         if child, ok := (*ps)[childName]; ok {
@@ -123,10 +135,13 @@ func (ps *proxies) addChild(parentName string, childName string) {
     }
 }
 
+// calculate the distance for a specific node giving the name.
 func (ps *proxies) getDistance(name string) (int) {
     return (*ps)[name].distance()
 }
 
+// select the inefficient proxies giving the proxy chain from the log
+// file and the index about which is in process.
 func (proxies *proxies) adjustPaths(pc proxyChain, i int,
                                     ip *inefficientProxies) (int) {
     pname := pc[0]
@@ -135,8 +150,14 @@ func (proxies *proxies) adjustPaths(pc proxyChain, i int,
     inefficient := -1
     if distance < inDistance {
         // inefficient
-        ip.proxies = append(ip.proxies, pname)
-        inefficient = i
+        proxy := (*proxies)[pname]
+        if _, ok := proxy.children[pc[1]]; !ok {
+            // it's only inefficient if it's
+            // pointing to another proxy with greater
+            // distance than the others it has.
+            ip.proxies = append(ip.proxies, pname)
+            inefficient = i
+        }
     }
     if len(pc) > 1 {
         j := proxies.adjustPaths(pc[1:], i + 1, ip)
