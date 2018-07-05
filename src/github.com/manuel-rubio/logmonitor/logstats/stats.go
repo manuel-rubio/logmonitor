@@ -132,7 +132,7 @@ func P95(responseTimes ResposeTimes) (float64) {
     times := make(timeSlice, samples)
     copy(times, responseTimes.times[:samples])
     sort.Sort(times)
-    return float64(times[int(count * 0.95 + 0.5) - 1]) / float64(time.Second)
+    return float64(times[int(float64(samples) * 0.95 + 0.5) - 1]) / float64(time.Second)
 }
 
 func FormatStats(stats Stats) (string) {
