@@ -4,6 +4,7 @@ import(
     "fmt"
     "time"
     "encoding/json"
+    "os"
 
     "github.com/manuel-rubio/logmonitor/logyzer"
 )
@@ -33,7 +34,32 @@ func (p Proxy) distance() (int) {
     return 0
 }
 
+var FilenameId = 0
+
 type proxies map[string]Proxy
+
+// generate a .dot file based on the current status of the
+// proxies.
+func (ps proxies) generateDraw(chain proxyChain) {
+    filename := fmt.Sprintf("%04d.dot", FilenameId)
+    FilenameId ++
+    f, err := os.Create(filename)
+    if err != nil {
+        fmt.Errorf("cannot create file: %s", filename)
+    }
+    defer f.Close()
+    var output string
+    for proxyName, proxy := range ps {
+        for childName, _ := range proxy.children {
+            output += fmt.Sprintf("\n    \"%s\" -> \"%s\";", proxyName, childName)
+        }
+    }
+    s := fmt.Sprintf(`digraph proxies {%s
+    labelloc="t";
+    label="%s";
+}`, output, chain)
+    f.WriteString(s)
+}
 
 // process the proxy chain read from file to modify the
 // internal graph with better paths if any.
@@ -216,6 +242,7 @@ func ProcessLog(entry logyzer.LogEntry, proxies *proxies) {
     ip := inefficientProxies{originalChain: inProxies}
     proxies.processProxyChain(inProxies)
     inefficient := proxies.adjustPaths(inProxies, 0, &ip)
+    proxies.generateDraw(inProxies)
     if inefficient >= 0 {
         prefix := make([]string, len(inProxies[:inefficient]))
         copy(prefix, inProxies[:inefficient])
