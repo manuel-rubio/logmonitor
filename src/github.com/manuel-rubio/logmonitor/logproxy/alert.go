@@ -8,71 +8,150 @@ import(
     "github.com/manuel-rubio/logmonitor/logyzer"
 )
 
+const (
+    Inefficient = iota
+    Efficient
+)
+
 type proxyChain []string
 type proxyChains []proxyChain
 
-type proxyPath map[string]bool
-
-type proxy struct {
-    paths proxyPath
+type proxyPtr *Proxy
+type proxiesPtr map[string]proxyPtr
+type Proxy struct {
+    name string
     distance int
+    children proxiesPtr
+    parents proxiesPtr
 }
 
-type efficientProxies map[string]proxy
+type proxies map[string]Proxy
 
-func (ep *efficientProxies) process(pc proxyChain, i int,
-                                    ie *inefficientProxies) (string, int) {
-    pname := pc[0]
-    var path proxyChain
-    if len(pc) > 1 {
-        path = pc[1:]
+func (ps *proxies) processProxyChain(chain proxyChain) {
+    childName := chain[len(chain) - 1]
+    ps.add(childName)
+    for i := len(chain) - 2; i >= 0; i-- {
+        parentName := chain[i]
+        childName = chain[i + 1]
+        ps.addChild(parentName, childName)
     }
-    if p, ok := (*ep)[pname]; ok {
-        if len(path) > 0 {
-            n, d := ep.process(path, i + 1, ie)
-            if d < p.distance {
-                p.distance = d
-                p.paths = make(proxyPath)
-                p.paths[n] = true
-                (*ep)[pname] = p
-            } else if d > p.distance {
-                prefix := make(proxyChain, i)
-                copy(prefix, ie.originalChain[:i + 1])
-                ep.triggerAlert(prefix, pname, ie)
-                return pname, p.distance + 1
-            } else {
-                p.paths[n] = true
+}
+
+func (ps *proxies) adjustDistanceUp(name string, proxy *Proxy,
+                                    childName string, child *Proxy,
+                                    distance int) {
+    if proxy.distance > distance {
+        proxy.children = make(proxiesPtr)
+        proxy.children[childName] = child
+        proxy.distance = distance
+        (*ps)[name] = *proxy
+        for parentName, parent := range proxy.parents {
+            ps.adjustDistanceUp(parentName, parent, name, proxy, distance + 1)
+        }
+    }
+}
+
+func (ps *proxies) add(name string) (Proxy) {
+    if proxy, ok := (*ps)[name]; ok {
+        if proxy.distance > 0 {
+            for parentName, parent := range proxy.parents {
+                ps.adjustDistanceUp(parentName, parent, name, &proxy, 1)
             }
-            return pname, d + 1
-        } else {
-            if 0 < p.distance {
-                p.distance = 0
-                p.paths = make(proxyPath)
-                (*ep)[pname] = p
-            }
-            return pname, 1
         }
     } else {
-        d := 0
-        h := make(proxyPath)
-        if len(pc) > 1 {
-            var n string
-            n, d = ep.process(pc[1:], i + 1, ie)
-            h[n] = true
+        (*ps)[name] = Proxy{name: name,
+                            distance: 0,
+                            parents: make(proxiesPtr),
+                            children: make(proxiesPtr)}
+    }
+    return (*ps)[name]
+}
+
+func (ps *proxies) addChild(parentName string, childName string) {
+    if proxy, ok := (*ps)[parentName]; ok {
+        if child, ok := (*ps)[childName]; ok {
+            if proxy.distance > (child.distance + 1) {
+                proxy.distance = child.distance + 1
+                for _, ch := range proxy.children {
+                    delete(ch.parents, parentName)
+                }
+                proxy.children = make(proxiesPtr)
+            }
+            if proxy.distance >= (child.distance + 1) {
+                child.parents[parentName] = &proxy
+                proxy.children[childName] = &child
+                (*ps)[parentName] = proxy
+                (*ps)[childName] = child
+            }
+        } else {
+            child = Proxy{name: childName,
+                          distance: 0,
+                          children: make(proxiesPtr),
+                          parents: make(proxiesPtr)}
+            if proxy.distance > 1 {
+                proxy.distance = 1
+                for _, ch := range proxy.children {
+                    delete(ch.parents, parentName)
+                }
+                proxy.children = make(proxiesPtr)
+            }
+            if proxy.distance >= 1 {
+                child.parents[parentName] = &proxy
+                proxy.children[childName] = &child
+                (*ps)[parentName] = proxy
+                (*ps)[childName] = child
+            }
         }
-        (*ep)[pname] = proxy{paths: h, distance: d}
-        return pname, d + 1
+    } else {
+        if child, ok := (*ps)[childName]; ok {
+            proxy = Proxy{name: parentName,
+                          distance: child.distance + 1,
+                          children: make(proxiesPtr),
+                          parents: make(proxiesPtr)}
+            proxy.children[childName] = &child
+            child.parents[parentName] = &proxy
+            (*ps)[parentName] = proxy
+            (*ps)[childName] = child
+        } else {
+            panic(fmt.Sprintf("node %d and %d doesn't exist... this mustn't happen!\n",
+                              parentName, childName))
+        }
     }
 }
 
-func (ep *efficientProxies) generateChains(prefix proxyChain, name string) (proxyChains) {
+func (ps *proxies) getDistance(name string) (int) {
+    return (*ps)[name].distance
+}
+
+func (proxies *proxies) adjustPaths(pc proxyChain, i int,
+                                    ip *inefficientProxies) (int) {
+    pname := pc[0]
+    inDistance := len(pc) - 1
+    distance := proxies.getDistance(pname)
+    inefficient := -1
+    if distance < inDistance {
+        // inefficient
+        ip.proxies = append(ip.proxies, pname)
+        inefficient = i
+    }
+    if len(pc) > 1 {
+        j := proxies.adjustPaths(pc[1:], i + 1, ip)
+        if inefficient < 0 {
+            inefficient = j
+        }
+    }
+    return inefficient
+}
+
+func (ps *proxies) generateChains(prefix proxyChain, name string) (proxyChains) {
     var chains proxyChains
     prefix = append(prefix, name)
-    paths := (*ep)[name].paths
-    if len(paths) > 0 {
-        for proxy, _ := range paths {
-            if (*ep)[name].distance > 0 {
-                genChains := ep.generateChains(prefix, proxy)
+    children := (*ps)[name].children
+    if len(children) > 0 {
+        for proxyName, _ := range children {
+            distance := ps.getDistance(name)
+            if distance > 0 {
+                genChains := ps.generateChains(prefix, proxyName)
                 chains = append(chains, genChains...)
             } else {
                 chains = append(chains, prefix)
@@ -84,13 +163,6 @@ func (ep *efficientProxies) generateChains(prefix proxyChain, name string) (prox
     return chains
 }
 
-func (ep *efficientProxies) triggerAlert(prefix proxyChain, name string,
-                                         ie *inefficientProxies) {
-    ie.proxies = append(ie.proxies, name)
-    ie.efficientChains = ep.generateChains(prefix, name)
-    PrintAlert(ie)
-}
-
 type inefficientProxies struct {
     originalChain proxyChain
     proxies proxyChain
@@ -98,7 +170,7 @@ type inefficientProxies struct {
 }
 
 func ProxyLoop(logs <-chan logyzer.LogEntry, done <-chan bool) {
-    proxies := make(efficientProxies)
+    proxies := make(proxies)
     for {
         select {
         case entry := <-logs:
@@ -109,13 +181,22 @@ func ProxyLoop(logs <-chan logyzer.LogEntry, done <-chan bool) {
     }
 }
 
-func ProcessLog(entry logyzer.LogEntry, proxies *efficientProxies) {
+func ProcessLog(entry logyzer.LogEntry, proxies *proxies) {
     if entry.IsBadLine() {
         return
     }
     inProxies := entry.ProxyIPs()
     ip := inefficientProxies{originalChain: inProxies}
-    proxies.process(inProxies, 0, &ip)
+    proxies.processProxyChain(inProxies)
+    inefficient := proxies.adjustPaths(inProxies, 0, &ip)
+    if inefficient >= 0 {
+        fmt.Println(">>>---\n", proxies, "\n<<<---")
+        prefix := make([]string, len(inProxies[:inefficient]))
+        copy(prefix, inProxies[:inefficient])
+        name := inProxies[inefficient]
+        ip.efficientChains = proxies.generateChains(prefix, name)
+        PrintAlert(&ip)
+    }
 }
 
 func FormatAlert(ip *inefficientProxies) (string) {
