@@ -74,10 +74,18 @@ First, the requierements. You need:
 To compile you can use the following command in the root directory (where this file is):
 
 ```
-GOPATH=$(pwd) go install github.com/manuel-rubio/logmonitor
+GOPATH=$(pwd) go install .../logmonitor
 ```
 
 You'll get the binary `bin/logmonitor` ready to go.
+
+If you want to use the logs generator (a tool designed to generate specific logs) you can compile it via this command:
+
+```
+GOPATH=$(pwd) go install .../genlogs
+```
+
+The command will be available in this path `bin/genlogs`.
 
 Infrastructure
 --------------
