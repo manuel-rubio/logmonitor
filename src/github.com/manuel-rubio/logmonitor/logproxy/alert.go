@@ -20,9 +20,17 @@ type proxyPtr *Proxy
 type proxiesPtr map[string]proxyPtr
 type Proxy struct {
     name string
-    distance int
     children proxiesPtr
     parents proxiesPtr
+}
+
+func (p Proxy) distance() (int) {
+    if len(p.children) > 0 {
+        for _, child := range p.children {
+            return (*child).distance() + 1
+        }
+    }
+    return 0
 }
 
 type proxies map[string]Proxy
@@ -38,29 +46,26 @@ func (ps *proxies) processProxyChain(chain proxyChain) {
 }
 
 func (ps *proxies) adjustDistanceUp(name string, proxy *Proxy,
-                                    childName string, child *Proxy,
-                                    distance int) {
-    if proxy.distance > distance {
+                                    childName string, child *Proxy) {
+    if (*proxy).distance() > (*child).distance() {
         proxy.children = make(proxiesPtr)
         proxy.children[childName] = child
-        proxy.distance = distance
         (*ps)[name] = *proxy
         for parentName, parent := range proxy.parents {
-            ps.adjustDistanceUp(parentName, parent, name, proxy, distance + 1)
+            ps.adjustDistanceUp(parentName, parent, name, proxy)
         }
     }
 }
 
 func (ps *proxies) add(name string) (Proxy) {
     if proxy, ok := (*ps)[name]; ok {
-        if proxy.distance > 0 {
+        if proxy.distance() > 0 {
             for parentName, parent := range proxy.parents {
-                ps.adjustDistanceUp(parentName, parent, name, &proxy, 1)
+                ps.adjustDistanceUp(parentName, parent, name, &proxy)
             }
         }
     } else {
         (*ps)[name] = Proxy{name: name,
-                            distance: 0,
                             parents: make(proxiesPtr),
                             children: make(proxiesPtr)}
     }
@@ -70,14 +75,15 @@ func (ps *proxies) add(name string) (Proxy) {
 func (ps *proxies) addChild(parentName string, childName string) {
     if proxy, ok := (*ps)[parentName]; ok {
         if child, ok := (*ps)[childName]; ok {
-            if proxy.distance > (child.distance + 1) {
-                proxy.distance = child.distance + 1
+            proxy_distance := proxy.distance()
+            child_distance := child.distance()
+            if proxy_distance > (child_distance + 1) {
                 for _, ch := range proxy.children {
                     delete(ch.parents, parentName)
                 }
                 proxy.children = make(proxiesPtr)
             }
-            if proxy.distance >= (child.distance + 1) {
+            if proxy_distance >= (child_distance + 1) {
                 child.parents[parentName] = &proxy
                 proxy.children[childName] = &child
                 (*ps)[parentName] = proxy
@@ -85,17 +91,16 @@ func (ps *proxies) addChild(parentName string, childName string) {
             }
         } else {
             child = Proxy{name: childName,
-                          distance: 0,
                           children: make(proxiesPtr),
                           parents: make(proxiesPtr)}
-            if proxy.distance > 1 {
-                proxy.distance = 1
+            proxy_distance := proxy.distance()
+            if proxy_distance > 1 {
                 for _, ch := range proxy.children {
                     delete(ch.parents, parentName)
                 }
                 proxy.children = make(proxiesPtr)
             }
-            if proxy.distance >= 1 {
+            if proxy_distance >= 1 {
                 child.parents[parentName] = &proxy
                 proxy.children[childName] = &child
                 (*ps)[parentName] = proxy
@@ -105,7 +110,6 @@ func (ps *proxies) addChild(parentName string, childName string) {
     } else {
         if child, ok := (*ps)[childName]; ok {
             proxy = Proxy{name: parentName,
-                          distance: child.distance + 1,
                           children: make(proxiesPtr),
                           parents: make(proxiesPtr)}
             proxy.children[childName] = &child
@@ -120,7 +124,7 @@ func (ps *proxies) addChild(parentName string, childName string) {
 }
 
 func (ps *proxies) getDistance(name string) (int) {
-    return (*ps)[name].distance
+    return (*ps)[name].distance()
 }
 
 func (proxies *proxies) adjustPaths(pc proxyChain, i int,
@@ -190,7 +194,6 @@ func ProcessLog(entry logyzer.LogEntry, proxies *proxies) {
     proxies.processProxyChain(inProxies)
     inefficient := proxies.adjustPaths(inProxies, 0, &ip)
     if inefficient >= 0 {
-        fmt.Println(">>>---\n", proxies, "\n<<<---")
         prefix := make([]string, len(inProxies[:inefficient]))
         copy(prefix, inProxies[:inefficient])
         name := inProxies[inefficient]
