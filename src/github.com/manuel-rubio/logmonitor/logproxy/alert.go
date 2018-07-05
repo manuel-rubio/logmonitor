@@ -35,6 +35,8 @@ func (p Proxy) distance() (int) {
 
 type proxies map[string]Proxy
 
+// process the proxy chain read from file to modify the
+// internal graph with better paths if any.
 func (ps *proxies) processProxyChain(chain proxyChain) {
     childName := chain[len(chain) - 1]
     ps.add(childName)
