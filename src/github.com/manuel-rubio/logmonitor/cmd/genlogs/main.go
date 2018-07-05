@@ -74,6 +74,7 @@ func main() {
     for _, route := range routes {
         method := methods[rand.Intn(len(methods))]
         log := genlog(method, route)
+        time.Sleep(500 * time.Millisecond)
         file.WriteString(log)
     }
 }
